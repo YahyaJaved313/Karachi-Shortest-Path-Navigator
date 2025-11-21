@@ -84,6 +84,17 @@ bool stringContains(string mainStr, string subStr) {
     return mainStr.find(subStr) != string::npos;
 }
 
+// --- New Helper: Whole Word Match ---
+// Checks if 'word' exists as a distinct word (surrounded by underscores or start/end)
+bool hasWholeWord(string text, string word) {
+    // Pad the text with underscores so we can always search for "_word_"
+    // Example: "bus_stop" -> "_bus_stop_" contains "_bus_"
+    // Example: "business" -> "_business_" does NOT contain "_bus_"
+    string padded = "_" + text + "_";
+    string searchPattern = "_" + word + "_";
+    return padded.find(searchPattern) != string::npos;
+}
+
 // --- Comparator for Dijkstra ---
 struct NodeCompare {
     bool operator()(Node* a, Node* b) {
@@ -146,8 +157,6 @@ void loadLandmarks() {
 
 // --- 3. Dijkstra's Algorithm ---
 void Dijkstras(Node* startNode) {
-    // RESET Logic: Only reset nodes that were touched previously is faster, 
-    // but for simplicity we reset all.
     for (size_t i = 0; i < allNodes.size(); ++i) {
         allNodes[i]->distanceFromStart = MAX_DISTANCE;
         allNodes[i]->previous = NULL;
@@ -188,7 +197,6 @@ void PrintShortestRouteTo(Node* destination, Node* source, string destName, stri
         cout << "   --------------------------------------------------" << endl;
         cout << "   DIAGNOSIS:" << endl;
         
-        // Smart Diagnostics for the user
         if (source->adj.empty()) {
              cout << "   The Start Location '" << sourceName << "' is ISOLATED." << endl;
              cout << "   (It exists in the map, but no roads connect to it in the data file.)" << endl;
@@ -261,7 +269,11 @@ void PrintShortestRouteTo(Node* destination, Node* source, string destName, stri
     cin.ignore(); cin.get();
 }
 
-void FindClosestService(string userLocationName, string serviceKeyword) {
+// --- UPDATED: Find Closest Service with Search Modes ---
+// Mode 0: Simple Substring (Default)
+// Mode 1: Whole Word Match (For Bus) - checks for _bus_
+// Mode 2: Petrol Logic - checks for 'petrol_pump' OR 'petrol_station'
+void FindClosestService(string userLocationName, string serviceKeyword, int searchMode) {
     string key = normalizeString(userLocationName);
     if (searchLookup.find(key) == searchLookup.end()) {
         cout << "\n   [!] Error: Your location '" << userLocationName << "' was not found." << endl;
@@ -274,7 +286,6 @@ void FindClosestService(string userLocationName, string serviceKeyword) {
     string properStartName = idToLandmark[startNodeID];
     Node* startNode = nodeLookup[startNodeID];
 
-    // SAFETY CHECK: Is user isolated?
     if (startNode->adj.empty()) {
         cout << "\n   [!] DATA ERROR: Your location '" << properStartName << "' is isolated." << endl;
         cout << "   It has no connecting roads in the dataset, so we cannot find a route." << endl;
@@ -284,7 +295,10 @@ void FindClosestService(string userLocationName, string serviceKeyword) {
     }
 
     printHeader("Locating Nearest Service...");
-    cout << "   Searching for nearest '" << serviceKeyword << "' from " << properStartName << "..." << endl;
+    if (searchMode == 2) 
+        cout << "   Searching for nearest Fuel Station from " << properStartName << "..." << endl;
+    else 
+        cout << "   Searching for nearest '" << serviceKeyword << "' from " << properStartName << "..." << endl;
 
     Dijkstras(startNode);
 
@@ -294,11 +308,28 @@ void FindClosestService(string userLocationName, string serviceKeyword) {
 
     for (auto const& [name, id] : landmarkMap) {
         string normName = normalizeString(name);
-        
-        if (stringContains(normName, serviceKeyword)) {
+        bool isMatch = false;
+
+        if (searchMode == 0) {
+            // Mode 0: Standard substring match (Police, Hospital)
+            if (stringContains(normName, serviceKeyword)) isMatch = true;
+        } 
+        else if (searchMode == 1) {
+            // Mode 1: Whole word match (Bus)
+            // Ensures "bus_station" matches but "business" does not.
+            if (hasWholeWord(normName, serviceKeyword)) isMatch = true;
+        }
+        else if (searchMode == 2) {
+            // Mode 2: Petrol Logic
+            // Checks specifically for "petrol_pump" OR "petrol_station"
+            if (stringContains(normName, "petrol_pump") || stringContains(normName, "petrol_station")) {
+                isMatch = true;
+            }
+        }
+
+        if (isMatch) {
             if (nodeLookup.find(id) != nodeLookup.end()) {
                 Node* target = nodeLookup[id];
-                // Valid path check:
                 if (target->distanceFromStart != MAX_DISTANCE && target->distanceFromStart < minDistance) {
                     minDistance = target->distanceFromStart;
                     closestNode = target;
@@ -316,7 +347,11 @@ void FindClosestService(string userLocationName, string serviceKeyword) {
         
         PrintShortestRouteTo(closestNode, startNode, closestName, properStartName, false); 
     } else {
-        cout << "\n   [!] No '" << serviceKeyword << "' reachable from your location." << endl;
+        if (searchMode == 2)
+            cout << "\n   [!] No Fuel Stations reachable from your location." << endl;
+        else
+            cout << "\n   [!] No '" << serviceKeyword << "' reachable from your location." << endl;
+            
         cout << "   (They might be too far or disconnected from the road network)" << endl;
         cout << "   Press Enter to return...";
         cin.get();
@@ -382,8 +417,10 @@ int main() {
         printHeader("Main Menu");
         cout << "   [1] Calculate Shortest Route" << endl;
         cout << "   [2] Browse Landmarks" << endl;
-        cout << "   [3] Emergency Services (Closest Helper)" << endl;
-        cout << "   [4] Exit System" << endl;
+        cout << "   [3] Emergency Services (Police/Hospital/Fire)" << endl;
+        cout << "   [4] Public Transport (Find Nearest Bus)" << endl;
+        cout << "   [5] Fuel Station (Find Petrol Pump)" << endl;
+        cout << "   [6] Exit System" << endl;
         cout << endl;
         cout << "   Select Option >> ";
         
@@ -394,7 +431,7 @@ int main() {
         }
         cin.ignore(); 
 
-        if (choice == 4) {
+        if (choice == 6) {
             cout << "\n   Exiting... Goodbye!" << endl;
             break;
         }
@@ -404,6 +441,7 @@ int main() {
         else if (choice == 1) {
             string sourceInput, destInput, sourceID, destID;
             
+            // Route Planning Logic
             while(true) {
                 printHeader("Plan Route: Step 1/3");
                 cout << "   Enter Start Location (Name): ";
@@ -451,12 +489,8 @@ int main() {
             Node* sourceNode = nodeLookup[sourceID];
             Node* destNode = nodeLookup[destID];
             
-            // --- DIAGNOSTIC CHECK ---
             if(sourceNode->adj.empty()) {
-                cout << "\n   [!] CRITICAL DATA ERROR: " << endl;
-                cout << "   The Start Location (" << sourceInput << ") has 0 connecting roads." << endl;
-                cout << "   It is effectively an 'Island' in the dataset." << endl;
-                cout << "\n   Press Enter to return...";
+                cout << "\n   [!] CRITICAL DATA ERROR: Start location is isolated." << endl;
                 cin.get();
                 continue;
             }
@@ -465,6 +499,7 @@ int main() {
             PrintShortestRouteTo(destNode, sourceNode, destInput, sourceInput, showDetailed);
         }
         else if (choice == 3) {
+            // --- EMERGENCY MENU ---
             while(true) {
                 printHeader("Emergency Services");
                 cout << "   Find the nearest service to your location:" << endl;
@@ -495,8 +530,32 @@ int main() {
                 cout << "\n   Enter your current location: ";
                 getline(cin, userLoc);
 
-                FindClosestService(userLoc, keyword);
+                FindClosestService(userLoc, keyword, 0); // Mode 0: Standard
             }
+        }
+        else if (choice == 4) {
+            // --- PUBLIC TRANSPORT (BUS) ---
+            printHeader("Public Transport (Bus)");
+            cout << "   Find the nearest Bus Station." << endl;
+            cout << "   -----------------------------" << endl;
+            string userLoc;
+            cout << "   Enter your current location: ";
+            getline(cin, userLoc);
+
+            // Mode 1: Search for "bus" with underscores before/after
+            FindClosestService(userLoc, "bus", 1); 
+        }
+        else if (choice == 5) {
+            // --- FUEL STATION ---
+            printHeader("Fuel Station Locator");
+            cout << "   Find the nearest Petrol Pump/Station." << endl;
+            cout << "   -------------------------------------" << endl;
+            string userLoc;
+            cout << "   Enter your current location: ";
+            getline(cin, userLoc);
+
+            // Mode 2: Search for "petrol_pump" OR "petrol_station"
+            FindClosestService(userLoc, "petrol", 2); 
         }
     }
 
