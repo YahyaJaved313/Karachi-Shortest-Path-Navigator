@@ -7,7 +7,9 @@
 #include <unordered_map>
 #include <queue>
 #include <algorithm>
-#include <cctype> // Required for tolower
+#include <cctype>
+#include <cstdlib> // For system("cls")
+#include <iomanip> // For formatting
 
 using namespace std;
 
@@ -41,27 +43,48 @@ public:
 // --- Global Storage ---
 vector<Node*> allNodes;
 unordered_map<string, Node*> nodeLookup; 
+map<string, string> landmarkMap;            
+unordered_map<string, string> idToLandmark; 
+unordered_map<string, string> searchLookup; 
 
-// Mapping systems
-map<string, string> landmarkMap;            // Original Name -> ID (for listing/display)
-unordered_map<string, string> idToLandmark; // ID -> Original Name (for route printing)
-unordered_map<string, string> searchLookup; // Normalized Name -> ID (for flexible user input)
+// --- UI Helpers ---
 
-// --- Helper: String Normalizer ---
-// Converts "Quaid e Azam" -> "quaid_e_azam"
+// Clear the console screen (Cross-platform compatible-ish)
+void clearScreen() {
+    #ifdef _WIN32
+        system("cls");
+    #else
+        system("clear");
+    #endif
+}
+
+// Print a decorative header
+void printHeader(string title) {
+    clearScreen();
+    cout << "============================================================" << endl;
+    cout << "   KARACHI NAVIGATION SYSTEM " << endl;
+    cout << "============================================================" << endl;
+    cout << " > " << title << endl;
+    cout << "------------------------------------------------------------" << endl;
+    cout << endl;
+}
+
+// Print a section divider
+void printDivider() {
+    cout << "\n------------------------------------------------------------\n";
+}
+
+// Normalizer for search
 string normalizeString(string input) {
     string result = "";
     for (char c : input) {
-        if (c == ' ') {
-            result += '_'; // Replace space with underscore (matches file format)
-        } else {
-            result += tolower(c); // Convert to lowercase
-        }
+        if (c == ' ') result += '_';
+        else result += tolower(c);
     }
     return result;
 }
 
-// --- Helper: Comparator for Priority Queue ---
+// --- Comparator for Dijkstra ---
 struct NodeCompare {
     bool operator()(Node* a, Node* b) {
         return a->distanceFromStart > b->distanceFromStart;
@@ -70,8 +93,7 @@ struct NodeCompare {
 
 // --- 1. Graph Creation ---
 void createGraph() {
-    cout << "Loading graph data..." << endl;
-    
+    // A. Load Nodes
     ifstream locationsFile("karachi_locations.txt");
     if (!locationsFile.is_open()) {
         cerr << "Error: Could not open karachi_locations.txt." << endl;
@@ -85,8 +107,8 @@ void createGraph() {
         nodeLookup[nodeID] = newNode; 
     }
     locationsFile.close();
-    cout << "Loaded " << allNodes.size() << " locations (nodes)." << endl;
 
+    // B. Load Edges
     ifstream roadsFile("karachi_roads.txt");
     if (!roadsFile.is_open()) {
         cerr << "Error: Could not open karachi_roads.txt" << endl;
@@ -95,8 +117,6 @@ void createGraph() {
 
     string u, v;
     int dist;
-    int edgeCount = 0;
-
     while (roadsFile >> u >> v >> dist) {
         if (nodeLookup.find(u) != nodeLookup.end() && nodeLookup.find(v) != nodeLookup.end()) {
             Node* n1 = nodeLookup[u];
@@ -104,11 +124,9 @@ void createGraph() {
             Edge* newEdge = new Edge(n1, n2, dist);
             n1->adj.push_back(newEdge);
             n2->adj.push_back(newEdge);
-            edgeCount++;
         }
     }
     roadsFile.close();
-    cout << "Loaded " << edgeCount << " roads (edges)." << endl;
 }
 
 // --- 2. Load Landmarks ---
@@ -121,15 +139,11 @@ void loadLandmarks() {
     
     string name, id;
     while (file >> name >> id) {
-        landmarkMap[name] = id;       // Store original Case
-        idToLandmark[id] = name;      // Store ID mapping
-        
-        // Store NORMALIZED version for searching
-        // e.g., "quaid_e_azam_..." -> "8157"
+        landmarkMap[name] = id;       
+        idToLandmark[id] = name;      
         searchLookup[normalizeString(name)] = id;
     }
     file.close();
-    cout << "Loaded " << landmarkMap.size() << " landmarks." << endl;
 }
 
 // --- 3. Dijkstra's Algorithm ---
@@ -165,13 +179,18 @@ void Dijkstras(Node* startNode) {
     }
 }
 
-// --- 4. Print Result ---
+// --- 4. Print Result (Improved UI) ---
 void PrintShortestRouteTo(Node* destination, Node* source, string destName, string sourceName, bool showDetailed) {
+    printHeader("Route Calculation Results");
+
     if (destination->distanceFromStart == MAX_DISTANCE) {
-        cout << "\n[!] No path found. These locations might be disconnected." << endl;
+        cout << "\n   [!] ERROR: No path found. Locations are not connected." << endl;
+        cout << "\n   Press Enter to return...";
+        cin.ignore(); cin.get();
         return;
     }
 
+    // Reconstruct Path
     vector<string> rawPath;
     Node* curr = destination;
     while (curr != NULL) {
@@ -180,6 +199,7 @@ void PrintShortestRouteTo(Node* destination, Node* source, string destName, stri
     }
     reverse(rawPath.begin(), rawPath.end());
 
+    // Prepare View List
     vector<string> printList;
     for (size_t i = 0; i < rawPath.size(); ++i) {
         string id = rawPath[i];
@@ -193,142 +213,185 @@ void PrintShortestRouteTo(Node* destination, Node* source, string destName, stri
         }
     }
 
-    cout << "\n============================================" << endl;
-    cout << "              ROUTE DETAILS                 " << endl;
-    cout << "============================================" << endl;
-    cout << "From:   " << sourceName << endl;
-    cout << "To:     " << destName << endl;
-    cout << "Type:   " << (showDetailed ? "Detailed" : "Landmarks Only") << endl;
-    cout << "--------------------------------------------" << endl;
-    
-    if (printList.empty()) {
-        cout << "(Path calculated, but no named landmarks lie on this specific route)" << endl;
-    } else {
-        int stepCount = 0;
-        for (size_t i = 0; i < printList.size(); ++i) {
-            cout << "[" << printList[i] << "]";
+    // --- SECTION 1: TRIP SUMMARY ---
+    cout << "   TRIP SUMMARY" << endl;
+    cout << "   ------------" << endl;
+    cout << "   From:       " << sourceName << endl;
+    cout << "   To:         " << destName << endl;
+    cout << "   Distance:   " << destination->distanceFromStart << " meters" << endl;
+    cout << "   Stops:      " << printList.size() << " items shown" << endl; 
+    printDivider();
 
+    // --- SECTION 2: THE ROUTE ---
+    cout << "   TURN-BY-TURN DIRECTIONS" << endl;
+    cout << "   -----------------------" << endl;
+
+    if (printList.empty()) {
+        cout << "   (Path is strictly passing through unnamed roads)" << endl;
+    } else {
+        for (size_t i = 0; i < printList.size(); ++i) {
+            // Visual formatting for the list
+            if (i == 0) cout << "   (START)  "; 
+            else if (i == printList.size() - 1) cout << "   ( END )  ";
+            else cout << "      |     ";
+
+            cout << printList[i] << endl;
+
+            // Add a connector line except for the last one
             if (i != printList.size() - 1) {
-                cout << " --> ";
-                stepCount++;
-                if (stepCount % 4 == 0) cout << "\n      "; 
+                cout << "      |     " << endl;
+                cout << "      v     " << endl;
             }
         }
     }
     
-    cout << "\n--------------------------------------------" << endl;
-    cout << "Total Distance:       " << destination->distanceFromStart << " meters" << endl;
-    cout << "Total Nodes Passed:   " << rawPath.size() << endl;
-    cout << "============================================" << endl;
+    printDivider();
+    cout << "   Press Enter to return to menu...";
+    cin.ignore(); cin.get();
 }
 
-// --- 5. Show Available Landmarks ---
+// --- 5. Show Available Landmarks (Paginated) ---
 void showLandmarks() {
-    cout << "\n--- Available Landmarks (Top 50 shown) ---" << endl;
+    printHeader("Available Landmarks Repository");
+    
     int count = 0;
-    for(map<string, string>::iterator it = landmarkMap.begin(); it != landmarkMap.end(); ++it) {
-        cout << it->first << "  "; 
-        count++;
-        if(count % 3 == 0) cout << endl;
-        if(count >= 50) {
-            cout << "\n... and " << landmarkMap.size() - 50 << " more." << endl;
+    int pageSize = 20; // Show 20 at a time
+
+    auto it = landmarkMap.begin();
+    while (it != landmarkMap.end()) {
+        
+        // Print a chunk
+        for (int i = 0; i < pageSize && it != landmarkMap.end(); ++i) {
+            cout << "   - " << it->first << endl;
+            ++it;
+            count++;
+        }
+
+        if (it == landmarkMap.end()) {
+            cout << "\n   [End of List]" << endl;
             break;
         }
+
+        cout << "\n   -- Showing " << count << "/" << landmarkMap.size() << " --" << endl;
+        cout << "   [Enter] Next Page | [Q] Quit to Menu: ";
+        
+        string input;
+        getline(cin, input);
+        if (!input.empty() && (input[0] == 'q' || input[0] == 'Q')) break;
+        
+        // Clear screen for next page for cleaner UI
+        printHeader("Available Landmarks (Cont.)");
     }
-    cout << endl;
+}
+
+// --- Loading Screen ---
+void showLoadingScreen() {
+    clearScreen();
+    cout << "\n\n\n";
+    cout << "          SYSTEM INITIALIZING          " << endl;
+    cout << "   ==================================" << endl;
+    cout << "   [+] Reading Map Data... ";
+    createGraph();
+    cout << "   [+] Indexing Landmarks... ";
+    loadLandmarks();
+    cout << "   ==================================" << endl;
+    cout << "          READY. Press Enter." << endl;
+    cin.get();
 }
 
 // --- Main ---
 int main() {
-    createGraph();
-    loadLandmarks();
+    showLoadingScreen();
 
     if (allNodes.empty()) {
         cout << "Error: Graph is empty." << endl;
-        cout << "Press Enter to exit...";
-        cin.get();
         return 1;
     }
 
-    int choice;
-    do {
-        cout << "\n--- Menu ---" << endl;
-        cout << "1. Find Shortest Path" << endl;
-        cout << "2. List Available Landmarks" << endl;
-        cout << "3. Exit" << endl;
-        cout << "Enter choice: ";
+    while (true) {
+        printHeader("Main Menu");
+        cout << "   [1] Calculate Shortest Route" << endl;
+        cout << "   [2] Browse Landmarks" << endl;
+        cout << "   [3] Exit System" << endl;
+        cout << endl;
+        cout << "   Select Option >> ";
         
+        int choice;
         if (!(cin >> choice)) { 
-            cin.clear();
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cin.clear(); cin.ignore(numeric_limits<streamsize>::max(), '\n');
             continue;
         }
+        cin.ignore(); // Consume newline
 
-        if (choice == 2) {
+        if (choice == 3) {
+            cout << "\n   Exiting... Goodbye!" << endl;
+            break;
+        }
+        else if (choice == 2) {
             showLandmarks();
         }
         else if (choice == 1) {
-            // Clear input buffer so getline works
-            cin.ignore(numeric_limits<streamsize>::max(), '\n');
-
-            string sourceInput, destInput;
-            string sourceID, destID;
-
-            // 1. Source
+            string sourceInput, destInput, sourceID, destID;
+            
+            // --- STEP 1: SELECT SOURCE ---
             while(true) {
-                cout << "\nEnter Source Name: ";
-                getline(cin, sourceInput); // Allows spaces
+                printHeader("Plan Route: Step 1/3");
+                cout << "   Enter Start Location (Name): ";
+                getline(cin, sourceInput);
                 
-                string searchKey = normalizeString(sourceInput);
-                if (searchLookup.find(searchKey) != searchLookup.end()) {
-                    sourceID = searchLookup[searchKey];
-                    // Update input to the official name for pretty printing
-                    sourceInput = idToLandmark[sourceID]; 
+                string key = normalizeString(sourceInput);
+                if (searchLookup.find(key) != searchLookup.end()) {
+                    sourceID = searchLookup[key];
+                    sourceInput = idToLandmark[sourceID]; // Format nicely
                     break;
-                } else {
-                    cout << "Error: '" << sourceInput << "' not found (searched for: " << searchKey << ")" << endl;
                 }
+                cout << "\n   [!] Error: '" << sourceInput << "' not found. Try again." << endl;
+                cout << "   Press Enter to retry...";
+                cin.get();
             }
 
-            // 2. Destination
+            // --- STEP 2: SELECT DESTINATION ---
             while(true) {
-                cout << "Enter Destination Name: ";
-                getline(cin, destInput); // Allows spaces
+                printHeader("Plan Route: Step 2/3");
+                cout << "   From: " << sourceInput << endl;
+                cout << "   -----------------------------------" << endl;
+                cout << "   Enter Destination (Name): ";
+                getline(cin, destInput);
                 
-                string searchKey = normalizeString(destInput);
-                if (searchLookup.find(searchKey) != searchLookup.end()) {
-                    destID = searchLookup[searchKey];
-                    destInput = idToLandmark[destID];
+                string key = normalizeString(destInput);
+                if (searchLookup.find(key) != searchLookup.end()) {
+                    destID = searchLookup[key];
+                    destInput = idToLandmark[destID]; // Format nicely
                     break;
-                } else {
-                    cout << "Error: '" << destInput << "' not found (searched for: " << searchKey << ")" << endl;
                 }
+                cout << "\n   [!] Error: '" << destInput << "' not found. Try again." << endl;
+                cout << "   Press Enter to retry...";
+                cin.get();
             }
 
-            // 3. Preference
+            // --- STEP 3: VIEW PREFERENCE ---
+            printHeader("Plan Route: Step 3/3");
+            cout << "   From: " << sourceInput << endl;
+            cout << "   To:   " << destInput << endl;
+            cout << "   -----------------------------------" << endl;
+            cout << "   [D] Detailed View (Show Intersection IDs)" << endl;
+            cout << "   [L] Landmarks Only (Clean View)" << endl;
+            cout << endl;
+            cout << "   Select Preference >> ";
+            
             char viewType;
-            cout << "\n-----------------------------------------" << endl;
-            cout << "How would you like to view the route?" << endl;
-            cout << "d - Detailed (Show every road intersection ID)" << endl;
-            cout << "l - Landmarks Only (Show only English names)" << endl;
-            cout << "-----------------------------------------" << endl;
-            cout << "Enter choice (d/l): ";
             cin >> viewType;
             bool showDetailed = (viewType == 'd' || viewType == 'D');
 
-            // 4. Compute
+            // Calculation
+            printHeader("Calculating...");
             Node* sourceNode = nodeLookup[sourceID];
             Node* destNode = nodeLookup[destID];
 
-            if (sourceNode && destNode) {
-                cout << "\nComputing shortest path..." << endl;
-                Dijkstras(sourceNode);
-                PrintShortestRouteTo(destNode, sourceNode, destInput, sourceInput, showDetailed);
-            } else {
-                cout << "Error: Node data inconsistency." << endl;
-            }
+            Dijkstras(sourceNode);
+            PrintShortestRouteTo(destNode, sourceNode, destInput, sourceInput, showDetailed);
         }
-    } while (choice != 3);
+    }
 
     return 0;
 }
