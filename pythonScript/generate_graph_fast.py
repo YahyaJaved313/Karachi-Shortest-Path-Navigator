@@ -18,11 +18,11 @@ print(f"   Graph ready: {G_int.number_of_nodes()} nodes, {G_int.number_of_edges(
 # --- 2. Save Network Files ---
 print("2. Writing locations and roads files...")
 
-with open('karachi_locations.txt', 'w', encoding='utf-8') as f:
+with open('../text_files/karachi_locations.txt', 'w', encoding='utf-8') as f:
     for node in G_int.nodes():
         f.write(f"{node}\n")
 
-with open('karachi_roads.txt', 'w', encoding='utf-8') as f:
+with open('../text_files/karachi_roads.txt', 'w', encoding='utf-8') as f:
     for u, v, data in G_int.edges(data=True):
         distance = int(round(data.get('length', 1)))
         f.write(f"{u} {v} {distance}\n")
@@ -75,7 +75,7 @@ try:
     print("   Writing landmarks file...")
     unique_landmarks = set()
     
-    with open('karachi_landmarks.txt', 'w', encoding='utf-8') as f:
+    with open('../text_files/karachi_landmarks.txt', 'w', encoding='utf-8') as f:
         for name, node_id in zip(poi_names, nearest_nodes):
             if name not in unique_landmarks:
                 f.write(f"{name} {node_id}\n")
