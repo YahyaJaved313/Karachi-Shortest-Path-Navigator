@@ -1,0 +1,18 @@
+# Ignore C++ build output
+*.exe
+*.o
+*.obj
+[Bb]in/
+[Oo]bj/
+
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE specific files
+cache/
+.vscode/
